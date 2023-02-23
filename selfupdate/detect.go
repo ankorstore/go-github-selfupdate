@@ -10,33 +10,46 @@ import (
 	"github.com/google/go-github/v30/github"
 )
 
+const windows = "windows"
+
 var reVersion = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
-func findAssetFromRelease(rel *github.RepositoryRelease,
-	suffixes []string, targetVersion string, filters []*regexp.Regexp) (*github.ReleaseAsset, semver.Version, bool) {
+type options struct {
+	draft bool
+	pre   bool
+}
 
+func findAssetFromRelease(rel *github.RepositoryRelease, suffixes []string, targetVersion string, filters []*regexp.Regexp, opt options) (*github.ReleaseAsset, semver.Version, bool) { //nolint:cyclop,gocognit
 	if targetVersion != "" && targetVersion != rel.GetTagName() {
 		log.Println("Skip", rel.GetTagName(), "not matching to specified version", targetVersion)
+
 		return nil, semver.Version{}, false
 	}
 
-	if targetVersion == "" && rel.GetDraft() {
+	if targetVersion == "" && rel.GetDraft() && !opt.draft {
 		log.Println("Skip draft version", rel.GetTagName())
+
 		return nil, semver.Version{}, false
 	}
-	if targetVersion == "" && rel.GetPrerelease() {
+
+	if targetVersion == "" && rel.GetPrerelease() && !opt.pre {
 		log.Println("Skip pre-release version", rel.GetTagName())
+
 		return nil, semver.Version{}, false
 	}
 
 	verText := rel.GetTagName()
 	indices := reVersion.FindStringIndex(verText)
+
 	if indices == nil {
 		log.Println("Skip version not adopting semver", verText)
+
 		return nil, semver.Version{}, false
 	}
+
 	if indices[0] > 0 {
 		log.Println("Strip prefix of version", verText[:indices[0]], "from", verText)
+
 		verText = verText[indices[0]:]
 	}
 
@@ -45,22 +58,29 @@ func findAssetFromRelease(rel *github.RepositoryRelease,
 	ver, err := semver.Make(verText)
 	if err != nil {
 		log.Println("Failed to parse a semantic version", verText)
+
 		return nil, semver.Version{}, false
 	}
 
 	for _, asset := range rel.Assets {
 		name := asset.GetName()
+
 		if len(filters) > 0 {
 			// if some filters are defined, match them: if any one matches, the asset is selected
 			matched := false
+
 			for _, filter := range filters {
 				if filter.MatchString(name) {
 					log.Println("Selected filtered asset", name)
+
 					matched = true
+
 					break
 				}
+
 				log.Printf("Skipping asset %q not matching filter %v\n", name, filter)
 			}
+
 			if !matched {
 				continue
 			}
@@ -75,6 +95,7 @@ func findAssetFromRelease(rel *github.RepositoryRelease,
 	}
 
 	log.Println("No suitable asset was found in release", rel.GetTagName())
+
 	return nil, semver.Version{}, false
 }
 
@@ -84,19 +105,20 @@ func findValidationAsset(rel *github.RepositoryRelease, validationName string) (
 			return asset, true
 		}
 	}
+
 	return nil, false
 }
 
-func findReleaseAndAsset(rels []*github.RepositoryRelease,
-	targetVersion string,
-	filters []*regexp.Regexp) (*github.RepositoryRelease, *github.ReleaseAsset, semver.Version, bool) {
+func findReleaseAndAsset(rels []*github.RepositoryRelease, targetVersion string, filters []*regexp.Regexp, opt options) (*github.RepositoryRelease, *github.ReleaseAsset, semver.Version, bool) {
 	// Generate candidates
 	suffixes := make([]string, 0, 2*7*2)
+
 	for _, sep := range []rune{'_', '-'} {
 		for _, ext := range []string{".zip", ".tar.gz", ".tgz", ".gzip", ".gz", ".tar.xz", ".xz", ""} {
 			suffix := fmt.Sprintf("%s%c%s%s", runtime.GOOS, sep, runtime.GOARCH, ext)
 			suffixes = append(suffixes, suffix)
-			if runtime.GOOS == "windows" {
+
+			if runtime.GOOS == windows {
 				suffix = fmt.Sprintf("%s%c%s.exe%s", runtime.GOOS, sep, runtime.GOARCH, ext)
 				suffixes = append(suffixes, suffix)
 			}
@@ -104,14 +126,16 @@ func findReleaseAndAsset(rels []*github.RepositoryRelease,
 	}
 
 	var ver semver.Version
+
 	var asset *github.ReleaseAsset
+
 	var release *github.RepositoryRelease
 
 	// Find the latest version from the list of releases.
 	// Returned list from GitHub API is in the order of the date when created.
 	//   ref: https://github.com/rhysd/go-github-selfupdate/issues/11
 	for _, rel := range rels {
-		if a, v, ok := findAssetFromRelease(rel, suffixes, targetVersion, filters); ok {
+		if a, v, ok := findAssetFromRelease(rel, suffixes, targetVersion, filters, opt); ok {
 			// Note: any version with suffix is less than any version without suffix.
 			// e.g. 0.0.1 > 0.0.1-beta
 			if release == nil || v.GTE(ver) {
@@ -124,6 +148,7 @@ func findReleaseAndAsset(rels []*github.RepositoryRelease,
 
 	if release == nil {
 		log.Println("Could not find any release for", runtime.GOOS, "and", runtime.GOARCH)
+
 		return nil, nil, semver.Version{}, false
 	}
 
@@ -145,21 +170,26 @@ func (up *Updater) DetectLatest(slug string) (release *Release, found bool, err 
 func (up *Updater) DetectVersion(slug string, version string) (release *Release, found bool, err error) {
 	repo := strings.Split(slug, "/")
 	if len(repo) != 2 || repo[0] == "" || repo[1] == "" {
-		return nil, false, fmt.Errorf("Invalid slug format. It should be 'owner/name': %s", slug)
+		return nil, false, fmt.Errorf("invalid slug format. It should be 'owner/name': %s", slug)
 	}
 
 	rels, res, err := up.api.Repositories.ListReleases(up.apiCtx, repo[0], repo[1], nil)
 	if err != nil {
 		log.Println("API returned an error response:", err)
+
 		if res != nil && res.StatusCode == 404 {
 			// 404 means repository not found or release not found. It's not an error here.
 			err = nil
+
 			log.Println("API returned 404. Repository or release not found")
 		}
+
 		return nil, false, err
 	}
 
-	rel, asset, ver, found := findReleaseAndAsset(rels, version, up.filters)
+	opt := options{pre: up.pre, draft: up.draft}
+
+	rel, asset, ver, found := findReleaseAndAsset(rels, version, up.filters, opt)
 	if !found {
 		return nil, false, nil
 	}
@@ -170,6 +200,8 @@ func (up *Updater) DetectVersion(slug string, version string) (release *Release,
 	publishedAt := rel.GetPublishedAt().Time
 	release = &Release{
 		ver,
+		rel.GetPrerelease(),
+		rel.GetDraft(),
 		url,
 		asset.GetSize(),
 		asset.GetID(),
@@ -184,10 +216,12 @@ func (up *Updater) DetectVersion(slug string, version string) (release *Release,
 
 	if up.validator != nil {
 		validationName := asset.GetName() + up.validator.Suffix()
+
 		validationAsset, ok := findValidationAsset(rel, validationName)
 		if !ok {
-			return nil, false, fmt.Errorf("Failed finding validation file %q", validationName)
+			return nil, false, fmt.Errorf("failed finding validation file %q", validationName)
 		}
+
 		release.ValidationAssetID = validationAsset.GetID()
 	}
 

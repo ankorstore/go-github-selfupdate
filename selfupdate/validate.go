@@ -27,10 +27,12 @@ type SHA2Validator struct {
 // additional asset file.
 func (v *SHA2Validator) Validate(release, asset []byte) error {
 	calculatedHash := fmt.Sprintf("%x", sha256.Sum256(release))
-	hash := fmt.Sprintf("%s", asset[:sha256.BlockSize])
+
+	hash := fmt.Sprintf("%s", asset[:sha256.BlockSize]) //nolint:gosimple
 	if calculatedHash != hash {
 		return fmt.Errorf("sha2: validation failed: hash mismatch: expected=%q, got=%q", calculatedHash, hash)
 	}
+
 	return nil
 }
 
@@ -56,8 +58,9 @@ func (v *ECDSAValidator) Validate(input, signature []byte) error {
 		R *big.Int
 		S *big.Int
 	}
+
 	if _, err := asn1.Unmarshal(signature, &rs); err != nil {
-		return fmt.Errorf("failed to unmarshal ecdsa signature: %v", err)
+		return fmt.Errorf("failed to unmarshal ecdsa signature: %w", err)
 	}
 
 	if !ecdsa.Verify(v.PublicKey, h.Sum([]byte{}), rs.R, rs.S) {

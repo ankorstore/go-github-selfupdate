@@ -16,9 +16,11 @@ import (
 // It contains GitHub client and its context.
 type Updater struct {
 	api       *github.Client
-	apiCtx    context.Context
+	apiCtx    context.Context //nolint:containedctx
 	validator Validator
 	filters   []*regexp.Regexp
+	pre       bool
+	draft     bool
 }
 
 // Config represents the configuration of self-update.
@@ -37,13 +39,19 @@ type Config struct {
 	// An asset is selected if it matches any of those, in addition to the regular tag, os, arch, extensions.
 	// Please make sure that your filter(s) uniquely match an asset.
 	Filters []string
+	// PreRelease indicates if pre-releases are allowed.
+	PreRelease bool
+	// Draft indicates if drafts are allowed.
+	Draft bool
 }
 
 func newHTTPClient(ctx context.Context, token string) *http.Client {
 	if token == "" {
 		return http.DefaultClient
 	}
+
 	src := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+
 	return oauth2.NewClient(ctx, src)
 }
 
@@ -54,35 +62,43 @@ func NewUpdater(config Config) (*Updater, error) {
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
+
 	if token == "" {
 		token, _ = gitconfig.GithubToken()
 	}
+
 	ctx := context.Background()
+
 	hc := newHTTPClient(ctx, token)
 
 	filtersRe := make([]*regexp.Regexp, 0, len(config.Filters))
+
 	for _, filter := range config.Filters {
 		re, err := regexp.Compile(filter)
 		if err != nil {
-			return nil, fmt.Errorf("Could not compile regular expression %q for filtering releases: %v", filter, err)
+			return nil, fmt.Errorf("could not compile regular expression %q for filtering releases: %w", filter, err)
 		}
+
 		filtersRe = append(filtersRe, re)
 	}
 
 	if config.EnterpriseBaseURL == "" {
 		client := github.NewClient(hc)
-		return &Updater{api: client, apiCtx: ctx, validator: config.Validator, filters: filtersRe}, nil
+
+		return &Updater{api: client, apiCtx: ctx, validator: config.Validator, filters: filtersRe, pre: config.PreRelease, draft: config.Draft}, nil
 	}
 
 	u := config.EnterpriseUploadURL
 	if u == "" {
 		u = config.EnterpriseBaseURL
 	}
+
 	client, err := github.NewEnterpriseClient(config.EnterpriseBaseURL, u, hc)
 	if err != nil {
 		return nil, err
 	}
-	return &Updater{api: client, apiCtx: ctx, validator: config.Validator, filters: filtersRe}, nil
+
+	return &Updater{api: client, apiCtx: ctx, validator: config.Validator, filters: filtersRe, pre: config.PreRelease, draft: config.Draft}, nil
 }
 
 // DefaultUpdater creates a new updater instance with default configuration.
@@ -93,7 +109,10 @@ func DefaultUpdater() *Updater {
 	if token == "" {
 		token, _ = gitconfig.GithubToken()
 	}
+
 	ctx := context.Background()
+
 	client := newHTTPClient(ctx, token)
+
 	return &Updater{api: github.NewClient(client), apiCtx: ctx}
 }
