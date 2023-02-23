@@ -3,14 +3,25 @@ package selfupdate
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
 
+	"github.com/blang/semver"
 	"github.com/google/go-github/v30/github"
-	gitconfig "github.com/tcnksm/go-gitconfig"
+	"github.com/tcnksm/go-gitconfig"
 	"golang.org/x/oauth2"
 )
+
+type UpdaterIn interface {
+	DetectLatest(slug string) (release *Release, found bool, err error)
+	DetectVersion(slug string, version string) (release *Release, found bool, err error)
+	downloadDirectlyFromURL(assetURL string) (io.ReadCloser, error)
+	UpdateTo(rel *Release, cmdPath string) error
+	UpdateCommand(cmdPath string, current semver.Version, slug string) (*Release, error)
+	UpdateSelf(current semver.Version, slug string) (*Release, error)
+}
 
 // Updater is responsible for managing the context of self-update.
 // It contains GitHub client and its context.
