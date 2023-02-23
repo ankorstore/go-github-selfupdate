@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/blang/semver"
-	"github.com/rhysd/go-github-selfupdate/selfupdate"
 	"os"
+
+	"github.com/ankorstore/go-selfupdate/selfupdate"
+	"github.com/blang/semver"
 )
 
 const version = "1.2.3"
