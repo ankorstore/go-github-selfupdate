@@ -3,6 +3,7 @@ module github.com/ankorstore/go-selfupdate
 require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/go-errors/errors v1.4.2
+	github.com/golang/mock v1.6.0
 	github.com/google/go-github/v30 v30.1.0
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/kr/pretty v0.1.0 // indirect
